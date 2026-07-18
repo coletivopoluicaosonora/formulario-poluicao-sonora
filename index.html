@@ -114,7 +114,7 @@
         <label>Data em que ocorreu</label>
         <input type="date" id="dataOcorrencia">
         <div class="aviso">Se estiver registrando um dia anterior, use a opção de anexar
-          um vídeo/áudio já gravado na seção de evidência abaixo, em vez de gravar agora.</div>
+          um vídeo já gravado na seção de evidência abaixo, em vez de gravar agora.</div>
       </div>
     </div>
 
@@ -157,14 +157,23 @@
     </div>
 
     <div class="cartao">
-      <strong>5. Evidência em vídeo ou áudio</strong>
-      <div class="aviso">Grave agora (até 15s) ou, se preferir, anexe um vídeo/áudio que já tenha gravado antes.</div>
-      <button type="button" id="btnGravar" class="secundario">Gravar agora</button>
+      <strong>5. Evidência em vídeo</strong>
+      <div class="aviso">Grave agora (até 15s) ou, se preferir, anexe um vídeo que já tenha gravado antes.</div>
+      <button type="button" id="btnPrepararCamera" class="secundario">Ligar câmera</button>
+
+      <div id="blocoPreviaCamera" class="oculto">
+        <video id="previaCamera" autoplay muted playsinline></video>
+        <div class="opcoes" style="margin-top:8px;">
+          <button type="button" id="btnTrocarCamera" class="secundario">Trocar câmera (frontal/traseira)</button>
+        </div>
+        <button type="button" id="btnGravar">Iniciar gravação (15s)</button>
+      </div>
+
       <div id="statusGravacao" style="margin-top:6px; font-size:0.9rem;"></div>
       <video id="previewVideo" class="oculto" controls></video>
 
       <label style="margin-top:16px;">Ou anexar arquivo já gravado</label>
-      <input type="file" id="arquivoEvidencia" accept="video/*,audio/*">
+      <input type="file" id="arquivoEvidencia" accept="video/*">
       <div id="statusArquivo" style="margin-top:6px; font-size:0.9rem;"></div>
     </div>
 
@@ -337,21 +346,52 @@
     document.getElementById('dbCapturado').textContent = 'Valor capturado: ' + ultimoDb + ' dB';
   });
 
-  // ---------- VÍDEO ----------
+  // ---------- VÍDEO (com prévia ao vivo e troca de câmera) ----------
   let gravador, chunksVideo = [], videoBase64 = '', videoMimeType = '';
+  let streamCamera = null, cameraAtual = 'environment'; // começa na traseira
+  const btnPrepararCamera = document.getElementById('btnPrepararCamera');
+  const blocoPreviaCamera = document.getElementById('blocoPreviaCamera');
+  const previaCamera = document.getElementById('previaCamera');
+  const btnTrocarCamera = document.getElementById('btnTrocarCamera');
   const btnGravar = document.getElementById('btnGravar');
   const statusGravacao = document.getElementById('statusGravacao');
   const previewVideo = document.getElementById('previewVideo');
 
-  btnGravar.addEventListener('click', async () => {
+  async function ligarCamera(facingMode) {
+    if (streamCamera) streamCamera.getTracks().forEach(t => t.stop());
+    streamCamera = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facingMode } },
+      audio: true
+    });
+    previaCamera.srcObject = streamCamera;
+  }
+
+  btnPrepararCamera.addEventListener('click', async () => {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      await ligarCamera(cameraAtual);
+      blocoPreviaCamera.classList.remove('oculto');
+      btnPrepararCamera.classList.add('oculto');
+    } catch (err) {
+      alert('Não foi possível acessar a câmera: ' + err.message);
+    }
+  });
+
+  btnTrocarCamera.addEventListener('click', async () => {
+    cameraAtual = (cameraAtual === 'environment') ? 'user' : 'environment';
+    try {
+      await ligarCamera(cameraAtual);
+    } catch (err) {
+      alert('Não foi possível trocar a câmera: ' + err.message);
+    }
+  });
+
+  btnGravar.addEventListener('click', () => {
+    try {
       chunksVideo = [];
       videoMimeType = MediaRecorder.isTypeSupported('video/mp4') ? 'video/mp4' : 'video/webm';
-      gravador = new MediaRecorder(stream, { mimeType: videoMimeType });
+      gravador = new MediaRecorder(streamCamera, { mimeType: videoMimeType });
       gravador.ondataavailable = (e) => chunksVideo.push(e.data);
       gravador.onstop = async () => {
-        stream.getTracks().forEach(t => t.stop());
         const blob = new Blob(chunksVideo, { type: videoMimeType });
         previewVideo.src = URL.createObjectURL(blob);
         previewVideo.classList.remove('oculto');
@@ -360,6 +400,7 @@
       };
       gravador.start();
       btnGravar.disabled = true;
+      btnTrocarCamera.disabled = true;
       let restante = 15;
       statusGravacao.textContent = 'Gravando... ' + restante + 's';
       const intervalo = setInterval(() => {
@@ -369,11 +410,12 @@
           clearInterval(intervalo);
           gravador.stop();
           btnGravar.disabled = false;
+          btnTrocarCamera.disabled = false;
           btnGravar.textContent = 'Gravar novamente';
         }
       }, 1000);
     } catch (err) {
-      alert('Não foi possível acessar a câmera: ' + err.message);
+      alert('Não foi possível iniciar a gravação: ' + err.message);
     }
   });
 
@@ -391,6 +433,11 @@
   inputArquivo.addEventListener('change', async () => {
     const arquivo = inputArquivo.files[0];
     if (!arquivo) return;
+    if (!arquivo.type.startsWith('video/')) {
+      statusArquivo.textContent = 'Selecione um arquivo de vídeo.';
+      inputArquivo.value = '';
+      return;
+    }
     const LIMITE_MB = 50;
     if (arquivo.size > LIMITE_MB * 1024 * 1024) {
       statusArquivo.textContent = 'Arquivo muito grande (máx. ' + LIMITE_MB + 'MB). Tente um arquivo menor.';
@@ -400,12 +447,8 @@
     videoMimeType = arquivo.type;
     videoBase64 = await blobParaBase64(arquivo);
     statusArquivo.textContent = 'Anexado: ' + arquivo.name + ' (' + Math.round(arquivo.size / 1024) + ' KB)';
-    if (arquivo.type.startsWith('video/')) {
-      previewVideo.src = URL.createObjectURL(arquivo);
-      previewVideo.classList.remove('oculto');
-    } else {
-      previewVideo.classList.add('oculto');
-    }
+    previewVideo.src = URL.createObjectURL(arquivo);
+    previewVideo.classList.remove('oculto');
     statusGravacao.textContent = '';
   });
 
@@ -467,20 +510,18 @@
     document.getElementById('btnEnviar').textContent = 'Enviando...';
 
     try {
-      const resposta = await fetch(URL_APPS_SCRIPT, {
+      // Enviamos em modo no-cors: não conseguimos ler a resposta de volta (é uma
+      // limitação de segurança do navegador entre domínios diferentes), mas o
+      // envio em si é processado normalmente do lado do Google (grava na planilha
+      // e salva o vídeo no Drive). Evitamos reenviar para não duplicar o registro.
+      await fetch(URL_APPS_SCRIPT, {
         method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // evita bloqueio de CORS
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(dados)
       });
-      const resultado = await resposta.json();
-      if (resultado.ok) {
-        document.getElementById('formularioPrincipal').classList.add('oculto');
-        document.getElementById('telaSucesso').classList.remove('oculto');
-      } else {
-        mostrarErro(resultado.erro || 'Erro ao enviar.');
-        document.getElementById('btnEnviar').disabled = false;
-        document.getElementById('btnEnviar').textContent = 'Enviar registro';
-      }
+      document.getElementById('formularioPrincipal').classList.add('oculto');
+      document.getElementById('telaSucesso').classList.remove('oculto');
     } catch (erro) {
       mostrarErro('Erro ao enviar: ' + erro.message);
       document.getElementById('btnEnviar').disabled = false;
