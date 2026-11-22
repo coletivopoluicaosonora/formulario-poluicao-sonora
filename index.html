@@ -213,7 +213,20 @@
     </div>
 
     <div class="cartao">
-      <strong>8. Provas adicionais (opcional)</strong>
+      <strong>8. Responsável pelo barulho (opcional)</strong>
+      <label>Você sabe quem é o responsável (dono, gerente, organizador, morador)?</label>
+      <div class="aviso">Pode preencher mesmo sem se identificar na seção 7. O nome só é aceito junto com um telefone, WhatsApp ou e-mail de contato.</div>
+      <label>Nome ou apelido</label>
+      <input type="text" id="envolvidoNome" maxlength="120">
+      <label>Telefone ou WhatsApp</label>
+      <input type="tel" id="envolvidoTelefone" maxlength="40">
+      <label>E-mail</label>
+      <input type="email" id="envolvidoEmail" maxlength="120">
+      <div class="aviso">Estes dados são sigilosos. Serão vistos apenas pelo Coletivo e repassados somente às autoridades competentes, para que possam averiguar a ocorrência. Nunca serão publicados no mapa, no site ou nos relatórios públicos. O que você informa é um relato não verificado. Indique apenas pessoas que realmente tenham relação com o fato: acusar alguém falsamente pode gerar responsabilidade legal.</div>
+    </div>
+
+    <div class="cartao">
+      <strong>9. Provas adicionais (opcional)</strong>
       <div class="aviso">Fotos, prints de conversas de WhatsApp, documentos. <strong>Só é possível anexar provas se você se identificou na seção 7.</strong> O vídeo da seção 5 não tem essa exigência. Até 5 arquivos (foto, PDF, .txt ou .zip), de até 10 MB cada.</div>
       <div class="aviso">As provas precisam ser verdadeiras. O Coletivo não se responsabiliza por falso testemunho nem por informações falsas enviadas por terceiros.</div>
       <input type="file" id="arquivoProvas" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.pdf,.txt,.zip,image/*">
@@ -534,6 +547,21 @@
     if (provasSelecionadas.length > 0 && !estaIdentificado()) limparProvas(MSG_PROVAS);
   });
 
+  // ---------- CÓDIGO DO APARELHO (aleatório, não identifica a pessoa) ----------
+  function obterIdAparelho() {
+    try {
+      let id = localStorage.getItem('idAparelhoColetivo');
+      if (!id) {
+        id = (window.crypto && crypto.randomUUID) ? crypto.randomUUID()
+          : (Date.now().toString(36) + Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2));
+        localStorage.setItem('idAparelhoColetivo', id);
+      }
+      return id;
+    } catch (e) {
+      return '';
+    }
+  }
+
   // ---------- ENVIO ----------
   document.getElementById('btnEnviar').addEventListener('click', async () => {
     const erroDiv = document.getElementById('erroEnvio');
@@ -550,6 +578,16 @@
       if (!document.getElementById('declaracaoVeracidade').checked) {
         return mostrarErro('Para anexar provas, marque a declaração de que elas são verdadeiras.');
       }
+    }
+
+    const envNome = document.getElementById('envolvidoNome').value.trim();
+    const envTel = document.getElementById('envolvidoTelefone').value.trim();
+    const envEmail = document.getElementById('envolvidoEmail').value.trim();
+    if (envNome && !envTel && !envEmail) {
+      return mostrarErro('Para informar o responsável pelo barulho, preencha também um telefone, WhatsApp ou e-mail de contato.');
+    }
+    if (envEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(envEmail)) {
+      return mostrarErro('O e-mail do responsável parece estar incorreto. Confira e tente de novo.');
     }
 
     const [lat, lng] = coordenadas.split(',').map(s => s.trim());
@@ -570,7 +608,11 @@
       videoBase64: videoBase64,
       videoMimeType: videoMimeType,
       provas: provasSelecionadas,
-      declaracaoVeracidade: document.getElementById('declaracaoVeracidade').checked
+      declaracaoVeracidade: document.getElementById('declaracaoVeracidade').checked,
+      envolvidoNome: envNome,
+      envolvidoTelefone: envTel,
+      envolvidoEmail: envEmail,
+      idAparelho: obterIdAparelho()
     };
 
     document.getElementById('btnEnviar').disabled = true;
