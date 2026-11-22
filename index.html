@@ -70,8 +70,8 @@
 <body>
 <div class="container">
   <div id="cabecalhoInicial">
-    <h1>Monitoramento de Poluição Sonora — Arraial D'Ajuda</h1>
-    <div class="subtitulo">Coletivo de Combate à Poluição Sonora de Arraial D'Ajuda</div>
+    <h1>Monitoramento de Poluição Sonora e Perturbação do Sossego — Arraial D'Ajuda</h1>
+    <div class="subtitulo">Coletivo de Combate à Poluição Sonora e Perturbação do Sossego</div>
     <div class="cartao" style="font-size:0.92rem; line-height:1.5;">
       Este formulário registra ocorrências de poluição sonora em Arraial D'Ajuda para formar um
       inventário de dados a ser encaminhado às autoridades e cobrar providências. Leva menos de
@@ -86,8 +86,8 @@
     <strong>Antes de começar</strong>
     <div class="consentimento-texto">
       Os dados enviados por este formulário (local, medição de ruído, vídeo, e se você optar por
-      se identificar, seus dados de contato) serão usados pelo Coletivo de Combate à Poluição Sonora
-      de Arraial D'Ajuda para montar um inventário de ocorrências de poluição sonora, a ser
+      se identificar, seus dados de contato) serão usados pelo Coletivo de Combate à Poluição Sonora e
+      Perturbação do Sossego de Arraial D'Ajuda para montar um inventário de ocorrências de poluição sonora, a ser
       encaminhado às autoridades competentes para cobrança de providências.<br><br>
       Seus dados pessoais só são coletados se você optar por se identificar, e nesse caso ficam
       sob guarda do Coletivo. Eles só serão repassados às autoridades se você autorizar isso
@@ -209,6 +209,18 @@
           <input type="checkbox" id="autorizaCompartilhar">
           <label style="margin:0;">Autorizo compartilhar meus dados de contato com as autoridades, caso necessário.</label>
         </div>
+      </div>
+    </div>
+
+    <div class="cartao">
+      <strong>8. Provas adicionais (opcional)</strong>
+      <div class="aviso">Fotos, prints de conversas de WhatsApp, documentos. <strong>Só é possível anexar provas se você se identificou na seção 7.</strong> O vídeo da seção 5 não tem essa exigência. Até 5 arquivos (foto, PDF, .txt ou .zip), de até 10 MB cada.</div>
+      <div class="aviso">As provas precisam ser verdadeiras. O Coletivo não se responsabiliza por falso testemunho nem por informações falsas enviadas por terceiros.</div>
+      <input type="file" id="arquivoProvas" multiple accept=".jpg,.jpeg,.png,.webp,.gif,.heic,.pdf,.txt,.zip,image/*">
+      <div id="statusProvas" style="margin-top:6px; font-size:0.9rem;"></div>
+      <div class="check-linha">
+        <input type="checkbox" id="declaracaoVeracidade">
+        <label style="margin:0;">Declaro que as provas anexadas são verdadeiras e estou ciente de que o Coletivo não se responsabiliza por falso testemunho.</label>
       </div>
     </div>
 
@@ -476,6 +488,52 @@
     });
   });
 
+  // ---------- PROVAS (só para quem se identificar) ----------
+  const MSG_PROVAS = 'Você só pode incluir documentos se incluir sua identificação no formulário.';
+  const MAX_PROVAS = 5, MAX_PROVA_MB = 10, MAX_TOTAL_PROVAS_MB = 20;
+  const EXT_PROVAS = ['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic', 'pdf', 'txt', 'zip'];
+  const inputProvas = document.getElementById('arquivoProvas');
+  const statusProvas = document.getElementById('statusProvas');
+  let provasSelecionadas = [];
+
+  function estaIdentificado() {
+    return respostas.quisIdentificar === 'Sim' && document.getElementById('nome').value.trim() !== '';
+  }
+
+  function limparProvas(msg) {
+    provasSelecionadas = [];
+    inputProvas.value = '';
+    statusProvas.textContent = msg || '';
+    statusProvas.style.color = msg ? '#b00020' : '';
+  }
+
+  inputProvas.addEventListener('change', async () => {
+    const arquivos = Array.from(inputProvas.files);
+    if (arquivos.length === 0) { limparProvas(''); return; }
+    if (!estaIdentificado()) { limparProvas(MSG_PROVAS); return; }
+    if (arquivos.length > MAX_PROVAS) { limparProvas('Envie no máximo ' + MAX_PROVAS + ' arquivos.'); return; }
+    let total = 0;
+    for (const a of arquivos) {
+      const ext = a.name.split('.').pop().toLowerCase();
+      if (EXT_PROVAS.indexOf(ext) === -1) { limparProvas('Tipo de arquivo não permitido: ' + a.name + '. Use foto, PDF, .txt ou .zip.'); return; }
+      if (a.size > MAX_PROVA_MB * 1024 * 1024) { limparProvas('O arquivo ' + a.name + ' passa de ' + MAX_PROVA_MB + ' MB.'); return; }
+      total += a.size;
+    }
+    if (total > MAX_TOTAL_PROVAS_MB * 1024 * 1024) { limparProvas('O total dos arquivos passa de ' + MAX_TOTAL_PROVAS_MB + ' MB.'); return; }
+    statusProvas.style.color = '';
+    statusProvas.textContent = 'Preparando arquivos...';
+    provasSelecionadas = [];
+    for (const a of arquivos) {
+      provasSelecionadas.push({ nome: a.name, mimeType: a.type || 'application/octet-stream', base64: await blobParaBase64(a) });
+    }
+    statusProvas.textContent = provasSelecionadas.length + ' arquivo(s) anexado(s): ' + arquivos.map(a => a.name).join(', ');
+  });
+
+  // Se a pessoa desistir de se identificar depois de anexar, as provas são removidas
+  document.querySelector('[data-grupo="quisIdentificar"]').addEventListener('click', () => {
+    if (provasSelecionadas.length > 0 && !estaIdentificado()) limparProvas(MSG_PROVAS);
+  });
+
   // ---------- ENVIO ----------
   document.getElementById('btnEnviar').addEventListener('click', async () => {
     const erroDiv = document.getElementById('erroEnvio');
@@ -487,6 +545,12 @@
     if (!tipologia) { return mostrarErro('Selecione o tipo de fonte da perturbação.'); }
     if (!respostas.contatouPolicia) { return mostrarErro('Informe se contatou a polícia.'); }
     if (!respostas.quisIdentificar) { return mostrarErro('Informe se deseja se identificar.'); }
+    if (provasSelecionadas.length > 0) {
+      if (!estaIdentificado()) { limparProvas(MSG_PROVAS); return mostrarErro(MSG_PROVAS); }
+      if (!document.getElementById('declaracaoVeracidade').checked) {
+        return mostrarErro('Para anexar provas, marque a declaração de que elas são verdadeiras.');
+      }
+    }
 
     const [lat, lng] = coordenadas.split(',').map(s => s.trim());
 
@@ -504,7 +568,9 @@
       consentimentoGeral: consentimentoGeral.checked,
       autorizaCompartilharComAutoridades: document.getElementById('autorizaCompartilhar').checked,
       videoBase64: videoBase64,
-      videoMimeType: videoMimeType
+      videoMimeType: videoMimeType,
+      provas: provasSelecionadas,
+      declaracaoVeracidade: document.getElementById('declaracaoVeracidade').checked
     };
 
     document.getElementById('btnEnviar').disabled = true;
