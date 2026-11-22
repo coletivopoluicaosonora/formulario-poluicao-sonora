@@ -227,10 +227,11 @@
 
     <div class="cartao">
       <strong>9. Provas adicionais (opcional)</strong>
-      <div class="aviso">Fotos, prints de conversas de WhatsApp, documentos. <strong>Só é possível anexar provas se você se identificou na seção 7.</strong> O vídeo da seção 5 não tem essa exigência. Até 5 arquivos (foto, PDF, .txt ou .zip), de até 10 MB cada.</div>
+      <div class="aviso">Fotos, prints de conversas de WhatsApp, documentos. <strong>Só é possível anexar provas se você se identificou na seção 7.</strong> O vídeo da seção 5 não tem essa exigência. Até 5 arquivos (foto, PDF, .txt ou .zip), de até 10 MB cada. Você pode adicionar um de cada vez: eles ficam na lista abaixo e podem ser removidos.</div>
       <div class="aviso">As provas precisam ser verdadeiras. O Coletivo não se responsabiliza por falso testemunho nem por informações falsas enviadas por terceiros.</div>
       <input type="file" id="arquivoProvas" multiple>
       <div id="statusProvas" style="margin-top:6px; font-size:0.9rem;"></div>
+      <div id="listaProvas"></div>
       <div class="check-linha">
         <input type="checkbox" id="declaracaoVeracidade">
         <label style="margin:0;">Declaro que as provas anexadas são verdadeiras e estou ciente de que o Coletivo não se responsabiliza por falso testemunho.</label>
@@ -513,33 +514,64 @@
     return respostas.quisIdentificar === 'Sim' && document.getElementById('nome').value.trim() !== '';
   }
 
+  function tamanhoTotalProvas() {
+    return provasSelecionadas.reduce((soma, p) => soma + p.size, 0);
+  }
+
+  function mostrarListaProvas() {
+    const lista = document.getElementById('listaProvas');
+    lista.innerHTML = '';
+    provasSelecionadas.forEach((p, i) => {
+      const linha = document.createElement('div');
+      linha.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:8px; margin-top:6px; font-size:0.9rem;';
+      const nome = document.createElement('span');
+      nome.textContent = p.nome + ' (' + Math.round(p.size / 1024) + ' KB)';
+      const botao = document.createElement('button');
+      botao.type = 'button';
+      botao.className = 'secundario';
+      botao.style.cssText = 'margin-top:0; padding:6px 10px; font-size:0.85rem;';
+      botao.textContent = 'Remover';
+      botao.addEventListener('click', () => {
+        provasSelecionadas.splice(i, 1);
+        mostrarListaProvas();
+        statusProvas.style.color = '';
+        statusProvas.textContent = provasSelecionadas.length ? provasSelecionadas.length + ' arquivo(s) anexado(s).' : '';
+      });
+      linha.appendChild(nome);
+      linha.appendChild(botao);
+      lista.appendChild(linha);
+    });
+  }
+
   function limparProvas(msg) {
     provasSelecionadas = [];
     inputProvas.value = '';
+    mostrarListaProvas();
     statusProvas.textContent = msg || '';
     statusProvas.style.color = msg ? '#b00020' : '';
   }
 
+  // Cada seleção ACRESCENTA arquivos à lista (não substitui os anteriores).
   inputProvas.addEventListener('change', async () => {
-    const arquivos = Array.from(inputProvas.files);
-    if (arquivos.length === 0) { limparProvas(''); return; }
+    const novos = Array.from(inputProvas.files);
+    inputProvas.value = ''; // permite escolher outro arquivo em seguida (ou o mesmo de novo)
+    if (novos.length === 0) return;
     if (!estaIdentificado()) { limparProvas(MSG_PROVAS); return; }
-    if (arquivos.length > MAX_PROVAS) { limparProvas('Envie no máximo ' + MAX_PROVAS + ' arquivos.'); return; }
-    let total = 0;
-    for (const a of arquivos) {
+    let aviso = '';
+    for (const a of novos) {
       const ext = a.name.split('.').pop().toLowerCase();
-      if (EXT_PROVAS.indexOf(ext) === -1) { limparProvas('Tipo de arquivo não permitido: ' + a.name + '. Use foto, PDF, .txt ou .zip.'); return; }
-      if (a.size > MAX_PROVA_MB * 1024 * 1024) { limparProvas('O arquivo ' + a.name + ' passa de ' + MAX_PROVA_MB + ' MB.'); return; }
-      total += a.size;
+      if (EXT_PROVAS.indexOf(ext) === -1) { aviso = 'Tipo de arquivo não permitido: ' + a.name + '. Use foto, PDF, .txt ou .zip.'; continue; }
+      if (a.size > MAX_PROVA_MB * 1024 * 1024) { aviso = 'O arquivo ' + a.name + ' passa de ' + MAX_PROVA_MB + ' MB.'; continue; }
+      if (provasSelecionadas.some(p => p.nome === a.name && p.size === a.size)) { aviso = 'O arquivo ' + a.name + ' já foi anexado.'; continue; }
+      if (provasSelecionadas.length >= MAX_PROVAS) { aviso = 'Limite de ' + MAX_PROVAS + ' arquivos. Remova algum para anexar outro.'; break; }
+      if (tamanhoTotalProvas() + a.size > MAX_TOTAL_PROVAS_MB * 1024 * 1024) { aviso = 'O total dos arquivos passa de ' + MAX_TOTAL_PROVAS_MB + ' MB.'; continue; }
+      statusProvas.style.color = '';
+      statusProvas.textContent = 'Preparando ' + a.name + '...';
+      provasSelecionadas.push({ nome: a.name, mimeType: a.type || 'application/octet-stream', size: a.size, base64: await blobParaBase64(a) });
+      mostrarListaProvas();
     }
-    if (total > MAX_TOTAL_PROVAS_MB * 1024 * 1024) { limparProvas('O total dos arquivos passa de ' + MAX_TOTAL_PROVAS_MB + ' MB.'); return; }
-    statusProvas.style.color = '';
-    statusProvas.textContent = 'Preparando arquivos...';
-    provasSelecionadas = [];
-    for (const a of arquivos) {
-      provasSelecionadas.push({ nome: a.name, mimeType: a.type || 'application/octet-stream', base64: await blobParaBase64(a) });
-    }
-    statusProvas.textContent = provasSelecionadas.length + ' arquivo(s) anexado(s): ' + arquivos.map(a => a.name).join(', ');
+    statusProvas.style.color = aviso ? '#b00020' : '';
+    statusProvas.textContent = aviso || (provasSelecionadas.length + ' arquivo(s) anexado(s).');
   });
 
   // Se a pessoa desistir de se identificar depois de anexar, as provas são removidas
@@ -607,7 +639,7 @@
       autorizaCompartilharComAutoridades: document.getElementById('autorizaCompartilhar').checked,
       videoBase64: videoBase64,
       videoMimeType: videoMimeType,
-      provas: provasSelecionadas,
+      provas: provasSelecionadas.map(p => ({ nome: p.nome, mimeType: p.mimeType, base64: p.base64 })),
       declaracaoVeracidade: document.getElementById('declaracaoVeracidade').checked,
       envolvidoNome: envNome,
       envolvidoTelefone: envTel,
